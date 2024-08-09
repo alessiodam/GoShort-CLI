@@ -27,17 +27,43 @@ jobs:
     - name: List build files
       id: list_files
       run: |
-        echo "FILES=$(ls build/**/*.exe build/**/*.gz build/**/* | tr '\n' ' ')" >> $GITHUB_ENV
+        # List all files in the build directory
+        find build -type f | tr '\n' ' ' | sed 's/ $//' > files.txt
+        cat files.txt
 
     - name: Upload binaries to release
       run: |
-        for file in ${{ env.FILES }}; do
+        while read -r file; do
           if [ -f "$file" ]; then
+            # Extract platform from the file path
+            if [[ "$file" == *"/windows-amd64/"* ]]; then
+              platform="windows-amd64"
+            elif [[ "$file" == *"/windows-arm64/"* ]]; then
+              platform="windows-arm64"
+            elif [[ "$file" == *"/linux-amd64/"* ]]; then
+              platform="linux-amd64"
+            elif [[ "$file" == *"/linux-arm64/"* ]]; then
+              platform="linux-arm64"
+            elif [[ "$file" == *"/macos-amd64/"* ]]; then
+              platform="macos-amd64"
+            elif [[ "$file" == *"/macos-arm64/"* ]]; then
+              platform="macos-arm64"
+            else
+              platform="unknown"
+            fi
+            
             filename=$(basename "$file")
-            echo "Uploading $filename..."
+            basepath=$(dirname "$file")
+            if [[ "$file" == *.exe ]]; then
+              asset_name="${platform}/${filename}"
+            else
+              asset_name="${platform}/${filename}"
+            fi
+            
+            echo "Uploading $filename as $asset_name..."
             curl -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                 -H "Content-Type: $(file -b --mime-type $file)" \
+                 -H "Content-Type: $(file -b --mime-type "$file")" \
                  --data-binary @"$file" \
-                 "https://uploads.github.com/repos/${{ github.repository }}/releases/${{ github.event.release.id }}/assets?name=$filename"
+                 "https://uploads.github.com/repos/${{ github.repository }}/releases/${{ github.event.release.id }}/assets?name=${asset_name}"
           fi
-        done
+        done < files.txt
