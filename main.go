@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/briandowns/spinner"
+	"github.com/fatih/color"
+	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 	"io"
 	"log"
@@ -42,6 +45,7 @@ var loginCmd = &cobra.Command{
 		} else {
 			serverUrl = args[0]
 		}
+
 		client := &http.Client{
 			Timeout: 5 * time.Second,
 		}
@@ -118,7 +122,6 @@ var loginCmd = &cobra.Command{
 
 		log.Println("\nLogin successful! Your session key is: " + loginRespData.Session)
 
-		// Store the session key in the user's home directory
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
 			log.Fatal("Failed to get user home directory: " + err.Error())
@@ -130,11 +133,12 @@ var loginCmd = &cobra.Command{
 		}
 
 		sessionFilePath := filepath.Join(goshortDir, "session.txt")
-		if err := os.WriteFile(sessionFilePath, []byte(loginRespData.Session), 0600); err != nil {
+		sessionData := fmt.Sprintf("%s\n%s", serverUrl, loginRespData.Session)
+		if err := os.WriteFile(sessionFilePath, []byte(sessionData), 0600); err != nil {
 			log.Fatal("Failed to write session file: " + err.Error())
 		}
 
-		log.Println("Session key saved to:", sessionFilePath)
+		log.Println("Session data saved to:", sessionFilePath)
 
 		defer func(Body io.ReadCloser) {
 			err := Body.Close()
@@ -145,20 +149,142 @@ var loginCmd = &cobra.Command{
 	},
 }
 
+var listCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List all shortlinks",
+	Run: func(cmd *cobra.Command, args []string) {
+		serverUrl, sessionKey, err := loadSessionData()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		color.Yellow("Checking session token...")
+
+		if err := checkSessionKey(sessionKey, serverUrl); err != nil {
+			log.Fatal(err)
+		}
+		color.Green("Session token is valid!")
+
+		s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
+		s.Start()
+
+		client := &http.Client{
+			Timeout: 5 * time.Second,
+		}
+
+		req, err := http.NewRequest("GET", serverUrl+"/api/v1/shortlinks", nil)
+		if err != nil {
+			log.Fatal("Failed to create request: " + err.Error())
+		}
+
+		req.Header.Set("Session", sessionKey)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Fatal("Failed to retrieve shortlinks: " + err.Error())
+		}
+		defer func(Body io.ReadCloser) {
+			err := Body.Close()
+			if err != nil {
+				log.Fatal("Failed to close response body: " + err.Error())
+			}
+		}(resp.Body)
+
+		s.Stop()
+
+		if resp.StatusCode != 200 {
+			log.Fatal("Failed to retrieve shortlinks: " + resp.Status)
+		}
+
+		type Analytics struct {
+			Browsers []struct {
+				Browser string `json:"browser"`
+				Count   int    `json:"count"`
+				Country string `json:"country"`
+			} `json:"browsers"`
+			Clicks int `json:"clicks"`
+		}
+
+		type Shortlink struct {
+			ID        int       `json:"id"`
+			LongURL   string    `json:"long_url"`
+			ShortURL  string    `json:"short_url"`
+			Analytics Analytics `json:"analytics"`
+		}
+
+		type ListResponse struct {
+			Message    string      `json:"message"`
+			Shortlinks []Shortlink `json:"shortlinks"`
+			Success    bool        `json:"success"`
+		}
+
+		var listRespData ListResponse
+		if err := json.NewDecoder(resp.Body).Decode(&listRespData); err != nil {
+			log.Fatal("Failed to decode list response body: " + err.Error())
+		}
+
+		if !listRespData.Success {
+			log.Fatal("Failed to retrieve shortlinks: " + listRespData.Message)
+		}
+
+		table := tablewriter.NewWriter(os.Stdout)
+		table.SetHeader([]string{"ID", "Long URL", "Short URL", "Clicks", "Browser", "Count", "Country"})
+
+		for _, link := range listRespData.Shortlinks {
+			if len(link.Analytics.Browsers) > 0 {
+				for i, browser := range link.Analytics.Browsers {
+					if i == 0 {
+						table.Append([]string{fmt.Sprintf("%d", link.ID), link.LongURL, link.ShortURL, fmt.Sprintf("%d", link.Analytics.Clicks), browser.Browser, fmt.Sprintf("%d", browser.Count), browser.Country})
+					} else {
+						table.Append([]string{"", "", "", "", browser.Browser, fmt.Sprintf("%d", browser.Count), browser.Country})
+					}
+				}
+			} else {
+				table.Append([]string{fmt.Sprintf("%d", link.ID), link.LongURL, link.ShortURL, fmt.Sprintf("%d", link.Analytics.Clicks), "", "", ""})
+			}
+		}
+
+		table.Render()
+	},
+}
+
 func main() {
 	rootCmd.AddCommand(loginCmd)
+	rootCmd.AddCommand(listCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		log.Fatalf("Command failed: %v", err)
 	}
 }
 
-func checkSessionKey(sessionKey string) error {
+func loadSessionData() (string, string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get user home directory: %w", err)
+	}
+
+	sessionFilePath := filepath.Join(homeDir, ".goshort", "session.txt")
+	sessionData, err := os.ReadFile(sessionFilePath)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to read session file: %w", err)
+	}
+
+	lines := bytes.SplitN(sessionData, []byte("\n"), 2)
+	if len(lines) < 2 {
+		return "", "", fmt.Errorf("session file format is invalid")
+	}
+
+	serverUrl := string(lines[0])
+	sessionKey := string(lines[1])
+	return serverUrl, sessionKey, nil
+}
+
+func checkSessionKey(sessionKey string, serverUrl string) error {
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 	}
 
-	req, err := http.NewRequest("GET", DefaultServerUrl+"/api/v1/user/me", nil)
+	req, err := http.NewRequest("GET", serverUrl+"/api/v1/user/me", nil)
 	if err != nil {
 		return err
 	}
@@ -184,20 +310,14 @@ func checkSessionKey(sessionKey string) error {
 }
 
 func handleURLShortening(urlToShorten string) {
-	homeDir, err := os.UserHomeDir()
+	serverUrl, sessionKey, err := loadSessionData()
 	if err != nil {
-		log.Fatal("Failed to get user home directory: " + err.Error())
-	}
-
-	sessionFilePath := filepath.Join(homeDir, ".goshort", "session.txt")
-	sessionKey, err := os.ReadFile(sessionFilePath)
-	if err != nil {
-		log.Fatal("Failed to read session file: " + err.Error())
+		log.Fatal(err)
 	}
 
 	log.Println("Checking session token...")
 
-	if err := checkSessionKey(string(sessionKey)); err != nil {
+	if err := checkSessionKey(sessionKey, serverUrl); err != nil {
 		log.Fatal(err)
 	}
 	log.Println("Session token is valid!")
@@ -215,12 +335,12 @@ func handleURLShortening(urlToShorten string) {
 		log.Fatal("Failed to marshal shorten request body: " + err.Error())
 	}
 
-	req, err := http.NewRequest("POST", DefaultServerUrl+"/api/v1/shortlinks", bytes.NewBuffer(shortenRequestBodyJson))
+	req, err := http.NewRequest("POST", serverUrl+"/api/v1/shortlinks", bytes.NewBuffer(shortenRequestBodyJson))
 	if err != nil {
 		log.Fatal("Failed to create request: " + err.Error())
 	}
 
-	req.Header.Set("Session", string(sessionKey))
+	req.Header.Set("Session", sessionKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	shortenResp, err := client.Do(req)
