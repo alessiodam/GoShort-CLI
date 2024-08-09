@@ -34,24 +34,38 @@ jobs:
       run: |
         while IFS= read -r file; do
           if [ -f "$file" ]; then
+            # Determine the platform and file name
             case "$file" in
-              *"/windows-amd64/"*) platform="windows-amd64" ;;
-              *"/windows-arm64/"*) platform="windows-arm64" ;;
-              *"/linux-amd64/"*) platform="linux-amd64" ;;
-              *"/linux-arm64/"*) platform="linux-arm64" ;;
-              *"/macos-amd64/"*) platform="macos-amd64" ;;
-              *"/macos-arm64/"*) platform="macos-arm64" ;;
-              *) platform="unknown" ;;
+              *"/windows-amd64/"*)
+                platform="windows-amd64"
+                asset_name="goshort-${platform}.exe"
+                ;;
+              *"/windows-arm64/"*)
+                platform="windows-arm64"
+                asset_name="goshort-${platform}.exe"
+                ;;
+              *"/linux-amd64/"*)
+                platform="linux-amd64"
+                asset_name="goshort-${platform}"
+                ;;
+              *"/linux-arm64/"*)
+                platform="linux-arm64"
+                asset_name="goshort-${platform}"
+                ;;
+              *"/macos-amd64/"*)
+                platform="macos-amd64"
+                asset_name="goshort-${platform}"
+                ;;
+              *"/macos-arm64/"*)
+                platform="macos-arm64"
+                asset_name="goshort-${platform}"
+                ;;
+              *)
+                platform="unknown"
+                asset_name="unknown"
+                ;;
             esac
 
-            filename=$(basename "$file")
-            basepath=$(dirname "$file")
-            if [[ "$filename" == *.exe ]]; then
-              asset_name="${platform}/${filename}"
-            else
-              asset_name="${platform}/${filename}"
-            fi
-            
             echo "Uploading $file as $asset_name..."
             curl -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
                  -H "Content-Type: $(file -b --mime-type "$file")" \
