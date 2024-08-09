@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-var DefaultServerUrl = "http://localhost:8000"
+var DefaultServerUrl = "https://shortdemo.tkbstudios.com"
 
 var rootCmd = &cobra.Command{
 	Use:   "goshort [url]",
