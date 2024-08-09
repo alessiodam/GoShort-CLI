@@ -27,43 +27,37 @@ jobs:
     - name: List build files
       id: list_files
       run: |
-        # List all files in the build directory
-        find build -type f | tr '\n' ' ' | sed 's/ $//' > files.txt
+        find build -type f > files.txt
         cat files.txt
 
     - name: Upload binaries to release
       run: |
-        while read -r file; do
+        while IFS= read -r file; do
           if [ -f "$file" ]; then
-            # Extract platform from the file path
-            if [[ "$file" == *"/windows-amd64/"* ]]; then
-              platform="windows-amd64"
-            elif [[ "$file" == *"/windows-arm64/"* ]]; then
-              platform="windows-arm64"
-            elif [[ "$file" == *"/linux-amd64/"* ]]; then
-              platform="linux-amd64"
-            elif [[ "$file" == *"/linux-arm64/"* ]]; then
-              platform="linux-arm64"
-            elif [[ "$file" == *"/macos-amd64/"* ]]; then
-              platform="macos-amd64"
-            elif [[ "$file" == *"/macos-arm64/"* ]]; then
-              platform="macos-arm64"
-            else
-              platform="unknown"
-            fi
-            
+            case "$file" in
+              *"/windows-amd64/"*) platform="windows-amd64" ;;
+              *"/windows-arm64/"*) platform="windows-arm64" ;;
+              *"/linux-amd64/"*) platform="linux-amd64" ;;
+              *"/linux-arm64/"*) platform="linux-arm64" ;;
+              *"/macos-amd64/"*) platform="macos-amd64" ;;
+              *"/macos-arm64/"*) platform="macos-arm64" ;;
+              *) platform="unknown" ;;
+            esac
+
             filename=$(basename "$file")
             basepath=$(dirname "$file")
-            if [[ "$file" == *.exe ]]; then
+            if [[ "$filename" == *.exe ]]; then
               asset_name="${platform}/${filename}"
             else
               asset_name="${platform}/${filename}"
             fi
             
-            echo "Uploading $filename as $asset_name..."
+            echo "Uploading $file as $asset_name..."
             curl -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
                  -H "Content-Type: $(file -b --mime-type "$file")" \
                  --data-binary @"$file" \
                  "https://uploads.github.com/repos/${{ github.repository }}/releases/${{ github.event.release.id }}/assets?name=${asset_name}"
+          else
+            echo "$file does not exist"
           fi
         done < files.txt
