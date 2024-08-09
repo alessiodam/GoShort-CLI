@@ -1,30 +1,53 @@
-name: release
+name: Build GoShort-CLI
 
 on:
-  release:
-    types:
-      - created
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  generate:
-    name: Generate cross-platform builds
-    runs-on: ubuntu-latest
+  build:
+    name: Build GoShort-CLI for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go-version: [1.22.5]
+
     steps:
-      - name: Checkout the repository
-        uses: actions/checkout@v2
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-      - name: Generate build files
-        uses: thatisuday/go-build-action@v1
-        with:
-          platforms: "linux/amd64, linux/arm64, windows/amd64, windows/arm64"
-          package: "GoShort-CLI"
-          name: "goshort"
-          compress: "true"
-          dest: "dist"
+    - name: Set up Go ${{ matrix.go-version }}
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ matrix.go-version }}
 
-      - name: Copy build-artifacts
-        uses: skx/github-action-publish-binaries@master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          args: "./dist/*.tar.gz"
+    - name: Build GoShort-CLI
+      run: |
+        GOOS=$(echo ${{ matrix.os }} | awk -F- '{print $1}')
+        GOARCH="amd64"
+        if [ "$GOOS" = "windows" ]; then
+          GOARCH="amd64"
+          OUTPUT_NAME="goshort.exe"
+        else
+          OUTPUT_NAME="goshort"
+        fi
+        go build -o $OUTPUT_NAME ./cmd/GoShort-CLI
+
+    - name: Archive build artifacts
+      if: ${{ matrix.os != 'windows-latest' }}
+      uses: actions/upload-artifact@v3
+      with:
+        name: goshort-${{ matrix.os }}-${{ matrix.go-version }}
+        path: goshort
+
+    - name: Archive build artifacts for Windows
+      if: ${{ matrix.os == 'windows-latest' }}
+      uses: actions/upload-artifact@v3
+      with:
+        name: goshort-${{ matrix.os }}-${{ matrix.go-version }}
+        path: goshort.exe
