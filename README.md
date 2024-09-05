@@ -2,6 +2,8 @@
 
 GoShort is a project I've put together for a software jam.
 
+> ⚠️This is no more maintained. It works and I don't have the time to maintain it. At the time of writing, everything still works :)
+
 # What is GoShort-CLI
 
 GoShort-CLI is the command line interface for interacting with a GoShort! server.  
